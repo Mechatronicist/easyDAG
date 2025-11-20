@@ -1,32 +1,35 @@
 import time
+from EasyDAG import EasyDAG, DAGNode, MultiprocessQueueWatcher, DAGQueue, QueueMessage
 
-from easyDAG import DistributedDAG, DAGNode
+def pull_data():
+    return 10
 
-
-def process_data(x, message_queue=None, **kwargs):
+def process_data(x, message_queue: DAGQueue = None):
     """Node function that sends messages during execution."""
     result = x * 2
+    print("test", x)
 
     # Send progress update
     if message_queue:
-        message_queue.put(('progress', {'node': 'process_data', 'status': 'running'}))
+        message_queue.put(QueueMessage('progress', {'node': 'process_data', 'status': 'running'}))
 
     # Do some work
     time.sleep(1)
 
     # Upload result to database asynchronously
     if message_queue:
-        message_queue.put(('upload', {'table': 'results', 'data': result}))
+        message_queue.put(QueueMessage('upload', {'table': 'results', 'data': result}))
 
     return result
 
 
-def aggregate(inputs=None, message_queue=None, **kwargs):
+def aggregate(a: int, b: int, d, message_queue: DAGQueue=None):
     """Aggregate results from dependencies."""
-    total = sum(inputs.values())
-
+    total = a + b + d
     if message_queue:
-        message_queue.put(('upload', {'table': 'aggregates', 'data': total}))
+        message_queue.put(QueueMessage('progress', (a, b, d)))
+    if message_queue:
+        message_queue.put(QueueMessage('upload', {'table': 'aggregates', 'data': total}))
 
     return total
 
@@ -48,18 +51,23 @@ def log_progress(payload):
 
 if __name__ == '__main__':
     # Create DAG and register handlers
-    dag = DistributedDAG(processes=4)
+    q = MultiprocessQueueWatcher()
+    dag = EasyDAG(processes=4, watch_queue=q)
 
-    # Register message handlers BEFORE running
-    dag.register_message_handler('upload', upload_to_database)
-    dag.register_message_handler('progress', log_progress)
+
+    # Register message handlers before running
+    q.register_message_handler('upload', upload_to_database)
+    q.register_message_handler('progress', log_progress)
 
     # Build the DAG
     dag.add_node(DAGNode('A', process_data, args=(10,)))
     dag.add_node(DAGNode('B', process_data, args=(20,)))
     dag.add_node(DAGNode('C', aggregate))
+    dag.add_node(DAGNode('D', pull_data))
+
     dag.add_edge('A', 'C')
     dag.add_edge('B', 'C')
+    dag.add_edge('D', 'C')
 
     # Run - messages will be processed asynchronously
     outputs = dag.run()

@@ -1,78 +1,21 @@
-from __future__ import annotations
 import multiprocessing as mp
 import pickle
 import time
 import traceback
-import threading
 from collections import defaultdict, deque
 from contextlib import contextmanager
-from multiprocessing import Pool, Manager, Queue as MPQueue
+from multiprocessing import Pool, Manager
+from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
 from queue import Queue
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
+
+from EasyDAG.messages import MultiprocessQueueWatcher
+from EasyDAG.node import DAGNode, _node_worker
+from EasyDAG.types import DAGQueue, NodeJobResult, NodeJob
 
 
-class DAGNode:
-    def __init__(
-            self,
-            node_id: str,
-            func: Callable[..., Any],
-            *,
-            args: Optional[Tuple] = None,
-            kwargs: Optional[Dict] = None,
-            max_retries: int = 0
-    ):
-        """Create a DAG node.
-
-        node_id: unique identifier for the node (string)
-        func: a picklable callable. It will be called as func(*args, **kwargs)
-              where additional keyword 'inputs' may be provided (see executor).
-        args/kwargs: static arguments that will be provided to func in addition
-                     to resolved inputs.
-        max_retries: number of times to retry this node on failure (default: 0)
-        """
-        self.id = node_id
-        self.func = func
-        self.args = args or ()
-        self.kwargs = kwargs or {}
-        self.max_retries = max_retries
-
-    def __repr__(self):
-        return f"DAGNode({self.id})"
-
-
-def _node_worker(callable_and_payload: Tuple) -> Tuple[str, Optional[Any], Optional[Dict[str, Any]]]:
-    """Unpack payload and run the node function.
-
-    Expects a tuple: (node_id, func, args, kwargs, resolved_inputs, message_queue)
-    Returns: (node_id, result | None, error_info | None)
-    """
-    node_id, func, args, kwargs, inputs, message_queue = callable_and_payload
-    try:
-        # Provide inputs as kwargs under 'inputs' key. Users' kwargs may include
-        # the same key name; inputs will override if present.
-        if inputs is None:
-            inputs = {}
-
-        # Also provide the message queue so functions can send messages to main thread
-        kwargs_with_inputs = {**kwargs, "inputs": inputs}
-        if message_queue is not None:
-            kwargs_with_inputs["message_queue"] = message_queue
-
-        # Call the function
-        result = func(*args, **kwargs_with_inputs)
-        return node_id, result, None
-    except Exception as e:
-        tb = traceback.format_exc()
-        error_info = {
-            'traceback': tb,
-            'inputs': str(inputs)[:500],  # Truncate to avoid huge errors
-            'exception': str(e)
-        }
-        return node_id, None, error_info
-
-
-class DistributedDAG:
+class EasyDAG:
     """A lightweight DAG executor using multiprocessing.Pool.
 
     Usage:
@@ -86,7 +29,8 @@ class DistributedDAG:
     For example, if B depends on A and C, then 'inputs' passed to B will be {'A': <outA>, 'C': <outC>}.
     """
 
-    def __init__(self, processes: Optional[int] = None, fail_fast: bool = True):
+    def __init__(self, processes: int = None, fail_fast: bool = True,
+                 watch_queue: MultiprocessQueueWatcher | None = None):
         """
         processes: number of worker processes (default: CPU count - 1)
         fail_fast: if True, stop scheduling new nodes when any node fails (default: True)
@@ -96,10 +40,7 @@ class DistributedDAG:
         self.rev_adj: Dict[str, List[str]] = defaultdict(list)
         self.processes = processes or max(1, mp.cpu_count() - 1)
         self.fail_fast = fail_fast
-        self.message_handlers: Dict[str, Callable] = {}
-        self._message_queue: Optional[MPQueue] = None
-        self._listener_thread: Optional[threading.Thread] = None
-        self._stop_listener = threading.Event()
+        self._message_queue = watch_queue
 
     def add_node(self, node: DAGNode) -> None:
         if node.id in self.nodes:
@@ -123,99 +64,6 @@ class DistributedDAG:
         self.adj[from_id].append(to_id)
         self.rev_adj[to_id].append(from_id)
 
-    def register_message_handler(self, message_type: str, handler: Callable[[Any], None]) -> None:
-        """Register a handler for a specific message type from child processes.
-
-        Args:
-            message_type: string identifier for the message type
-            handler: callable that takes the message payload as argument
-                     Handler will be executed in a separate thread in the main process
-
-        Example:
-            def upload_to_db(data):
-                # This runs in a thread in the main process
-                db.insert(data)
-
-            dag.register_message_handler('upload', upload_to_db)
-
-            # In your node function:
-            def my_task(message_queue=None, **kwargs):
-                result = do_work()
-                if message_queue:
-                    message_queue.put(('upload', result))
-                return result
-        """
-        self.message_handlers[message_type] = handler
-
-    def _start_message_listener(self) -> None:
-        """Start the message listener thread."""
-        self._stop_listener.clear()
-        self._listener_thread = threading.Thread(target=self._message_listener, daemon=True)
-        self._listener_thread.start()
-
-    def _stop_message_listener(self) -> None:
-        """Stop the message listener thread."""
-        if self._listener_thread is not None:
-            self._stop_listener.set()
-            # Send sentinel to unblock the listener
-            if self._message_queue is not None:
-                self._message_queue.put(('__stop__', None))
-            self._listener_thread.join(timeout=5)
-            self._listener_thread = None
-
-    def _message_listener(self) -> None:
-        """Listen for messages from child processes and dispatch handlers in threads."""
-        while not self._stop_listener.is_set():
-            try:
-                # Timeout to check stop flag periodically
-                message = self._message_queue.get(timeout=0.1)
-
-                if message[0] == '__stop__':
-                    break
-
-                message_type, payload = message
-
-                # Check if we have a handler for this message type
-                if message_type in self.message_handlers:
-                    handler = self.message_handlers[message_type]
-                    # Execute handler in a separate thread, so it doesn't block listener
-                    thread = threading.Thread(
-                        target=self._safe_handler_execution,
-                        args=(handler, payload, message_type),
-                        daemon=True
-                    )
-                    thread.start()
-                else:
-                    print(f"Warning: No handler registered for message type '{message_type}'")
-
-            except Exception:
-                # Timeout or other error, continue
-                continue
-
-    def _safe_handler_execution(self, handler: Callable, payload: Any, message_type: str) -> None:
-        """Execute a message handler with error handling."""
-        try:
-            handler(payload)
-        except Exception as e:
-            print(f"Error in message handler '{message_type}': {e}")
-            traceback.print_exc()
-        # Check acyclic using Kahn's algorithm (without modifying internal state)
-        indeg = {nid: 0 for nid in self.nodes}
-        for u, outs in self.adj.items():
-            for v in outs:
-                indeg[v] += 1
-        q = deque([n for n, d in indeg.items() if d == 0])
-        seen = 0
-        while q:
-            u = q.popleft()
-            seen += 1
-            for v in self.adj.get(u, []):
-                indeg[v] -= 1
-                if indeg[v] == 0:
-                    q.append(v)
-        if seen != len(self.nodes):
-            raise ValueError("Graph contains cycles or unreachable nodes (not a DAG)")
-
     @contextmanager
     def _create_pool(self):
         """Context manager for proper pool resource management."""
@@ -236,7 +84,8 @@ class DistributedDAG:
             try:
                 with open(cache_file, 'rb') as f:
                     return pickle.load(f)
-            except Exception:
+            except Exception as e:
+                print(f"DAG Cache corrupted, rebuilding. {repr(e)}''")
                 # If cache is corrupted, ignore and recompute
                 return None
         return None
@@ -249,10 +98,10 @@ class DistributedDAG:
         try:
             cache_file = cache_path / f"{node_id}.pkl"
             with open(cache_file, 'wb') as f:
-                pickle.dump(result, f)
-        except Exception:
+                pickle.dump(result, f)  # type: ignore[arg-type]
+        except Exception as e:
             # Non-critical if caching fails
-            pass
+            print(f"DAG Cache failed: {repr(e)}''")
 
     def run(
             self,
@@ -282,13 +131,17 @@ class DistributedDAG:
             cache_path = Path(cache_dir)
             cache_path.mkdir(parents=True, exist_ok=True)
 
-        # Setup message queue for child processes to communicate with main thread
-        self._message_queue = MPQueue()
-        self._start_message_listener()
-
         manager = Manager()
+        mp_queue = None
+        if self._message_queue:
+            mp_queue = DAGQueue(manager.Queue())
+            self._message_queue.register_queue(mp_queue)  # register queue to wrapper
         outputs = manager.dict()  # shared dict: node_id -> result
         errors = manager.dict()
+
+        # Setup message queue for child processes to communicate with main thread
+        if self._message_queue:
+            self._message_queue.start_message_listener()
 
         # Local state in the parent process
         indeg: Dict[str, int] = {nid: 0 for nid in self.nodes}
@@ -310,29 +163,58 @@ class DistributedDAG:
         pending = set()  # node ids currently running
 
         # Helper to submit a node
-        def submit(node_id: str, p: Pool):
+        def submit(node_id: str, p: PoolType):
             # Check cache first
             cached_result = self._get_cached(node_id, cache_path)
             if cached_result is not None:
                 outputs[node_id] = cached_result
-                # Simulate completion by calling callback directly
-                on_done((node_id, cached_result, None))
+                on_done(NodeJobResult(node_id, cached_result))
                 return
 
             node = self.nodes[node_id]
             # Build inputs dict from dependencies' outputs
             dep_ids = self.rev_adj.get(node_id, [])
-            resolved_inputs = {dep: outputs[dep] for dep in dep_ids}
-            payload = (node_id, node.func, node.args, node.kwargs, resolved_inputs, self._message_queue)
+            resolved_inputs = {dep.lower(): outputs[dep] for dep in dep_ids}
+
+            payload = NodeJob(node_id, node.func, node.args, node.kwargs, resolved_inputs, mp_queue)
             pending.add(node_id)
-            p.apply_async(_node_worker, args=(payload,), callback=on_done)
+
+            try:
+                # IMPORTANT: provide error_callback so exceptions from worker get routed
+                p.apply_async(_node_worker, args=(payload,), callback=on_done,
+                              error_callback=lambda ecb, nid=node_id: _handle_async_error(ecb, nid))
+            except Exception as e:
+                # This catches immediate scheduling errors (e.g. pickling error when serializing payload)
+                pending.discard(node_id)
+                # record error info
+                tb = traceback.format_exc()
+                errors[node_id] = {
+                    'traceback': tb,
+                    'inputs': str(resolved_inputs)[:500],
+                    'exception': str(e)
+                }
+                if self.fail_fast:
+                    errors['__stop__'] = True
+
+        def _handle_async_error(exc, node_id):
+            # print(f"Async error for node {node_id}: {exc}")
+            # Remove from pending and record error similar to on_done's behavior
+            pending.discard(node_id)
+            tb = "".join(traceback.format_exception_only(type(exc), exc))
+            errors[node_id] = {
+                'traceback': tb,
+                'inputs': "<unknown - scheduling error>",
+                'exception': str(exc)
+            }
+            if self.fail_fast:
+                errors['__stop__'] = True
 
         # Callback executed in parent process when a worker finishes
-        def on_done(result_tuple: Tuple[str, Optional[Any], Optional[Dict[str, Any]]]):
-            node_id, result, e_info = result_tuple
+        def on_done(job_result: NodeJobResult):
+            node_id = job_result.node_id
             pending.discard(node_id)
 
-            if e_info is not None:
+            if job_result.error_info is not None:
                 node = self.nodes[node_id]
                 # Check if we should retry
                 if retry_counts[node_id] < node.max_retries:
@@ -342,11 +224,12 @@ class DistributedDAG:
                     return
 
                 # No more retries, record error
-                errors[node_id] = e_info
+                errors[node_id] = job_result.error_info
                 if self.fail_fast:
                     # Signal to stop submitting new work
                     errors['__stop__'] = True
             else:
+                result = job_result.result
                 outputs[node_id] = result
                 # Save to cache
                 self._save_to_cache(node_id, result, cache_path)
@@ -396,7 +279,8 @@ class DistributedDAG:
                 raise
             finally:
                 # Stop the message listener
-                self._stop_message_listener()
+                if self._message_queue:
+                    self._message_queue.stop_message_listener()
 
         # If any errors, raise an aggregated exception with tracebacks
         if len(errors) > 0:
@@ -433,7 +317,7 @@ class DistributedDAG:
                 if indeg[v] == 0:
                     q.append(v)
         if seen != len(self.nodes):
-            raise ValueError("Graph contains cycles or unreachable nodes (not a DAG)")
+            raise ValueError("Graph contains cycles or unreachable nodes!")
 
     def to_graphviz(self) -> str:
         """
