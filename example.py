@@ -1,8 +1,10 @@
 import time
 from EasyDAG import EasyDAG, DAGNode, MultiprocessQueueWatcher, DAGQueue, QueueMessage
 
+
 def pull_data():
     return 10
+
 
 def process_data(x, message_queue: DAGQueue = None):
     """Node function that sends messages during execution."""
@@ -23,7 +25,7 @@ def process_data(x, message_queue: DAGQueue = None):
     return result
 
 
-def aggregate(a: int, b: int, d, message_queue: DAGQueue=None):
+def aggregate(a: int, b: int, d, message_queue: DAGQueue = None):
     """Aggregate results from dependencies."""
     total = a + b + d
     if message_queue:
@@ -53,7 +55,6 @@ if __name__ == '__main__':
     # Create DAG and register handlers
     q = MultiprocessQueueWatcher()
     dag = EasyDAG(processes=4, watch_queue=q)
-
 
     # Register message handlers before running
     q.register_message_handler('upload', upload_to_database)

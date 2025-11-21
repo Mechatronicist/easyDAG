@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from EasyDAG.messages import MultiprocessQueueWatcher
 from EasyDAG.node import DAGNode, _node_worker
-from EasyDAG.types import DAGQueue, NodeJobResult, NodeJob
+from EasyDAG.types import DAGQueue, NodeJobResult, NodeJob, NodeError
 
 
 class EasyDAG:
@@ -288,11 +288,11 @@ class EasyDAG:
             for k in errors.keys():
                 if k == '__stop__':
                     continue
-                error_info = errors[k]
+                error_info: NodeError = errors[k]
                 msg = f"Node {k} failed:\n"
-                msg += f"  Exception: {error_info['exception']}\n"
-                msg += f"  Inputs: {error_info['inputs']}\n"
-                msg += f"  Traceback:\n{error_info['traceback']}"
+                msg += f"  Exception: {error_info.exception}\n"
+                msg += f"  Inputs: {error_info.inputs}\n"
+                msg += f"  Traceback:\n{error_info.traceback}"
                 error_messages.append(msg)
 
             combined = "\n\n".join(error_messages)

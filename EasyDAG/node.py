@@ -2,7 +2,7 @@ import inspect
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from EasyDAG.types import NodeJob, NodeJobResult
+from EasyDAG.types import NodeJob, NodeJobResult, NodeError
 
 
 class DAGNode:
@@ -56,9 +56,5 @@ def _node_worker(job: NodeJob) -> NodeJobResult:
         return NodeJobResult(node_id, result)
     except Exception as e:
         tb = traceback.format_exc()
-        error_info = {
-            'traceback': tb,
-            'inputs': str(job.resolved_inputs)[:500],
-            'exception': str(e)
-        }  #@TODO change to error dataclass
+        error_info = NodeError(tb, str(job.resolved_inputs)[:500], str(e))
         return NodeJobResult(node_id, error_info=error_info)
