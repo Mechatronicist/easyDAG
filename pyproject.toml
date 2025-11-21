@@ -24,3 +24,6 @@ dependencies = [
 Homepage = "https://github.com/mechatronicist/EasyDAG"
 Repository = "https://github.com/mechatronicist/EasyDAG"
 Issues = "https://github.com/mechatronicist/EasyDAG/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/EasyDAG"]
