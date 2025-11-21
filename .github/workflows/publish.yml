@@ -37,8 +37,8 @@ jobs:
         with:
           name: easydag-wheel
           path: |
-            EasyDAG/EasyDAG/dist/*.whl
-            EasyDAG/EasyDAG/dist/*.tar.gz
+            dist/*.whl
+            dist/*.tar.gz
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.12.0
