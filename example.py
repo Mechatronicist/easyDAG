@@ -2,8 +2,9 @@ import time
 from src.EasyDAG import EasyDAG, DAGNode, MultiprocessQueueWatcher, DAGQueue, QueueMessage
 
 
-def pull_data():
-    return 10
+def simple_process():
+    """Define a simple function that doesn't return anything, but should be run before its dependants"""
+    return
 
 
 def process_data(x, message_queue: DAGQueue = None):
@@ -25,11 +26,11 @@ def process_data(x, message_queue: DAGQueue = None):
     return result
 
 
-def aggregate(a: int, b: int, d, message_queue: DAGQueue = None):
+def aggregate(a: int, b: int, message_queue: DAGQueue = None):
     """Aggregate results from dependencies."""
-    total = a + b + d
+    total = a + b
     if message_queue:
-        message_queue.put(QueueMessage('progress', (a, b, d)))
+        message_queue.put(QueueMessage('progress', (a, b)))
     if message_queue:
         message_queue.put(QueueMessage('upload', {'table': 'aggregates', 'data': total}))
 
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     dag.add_node(DAGNode('A', process_data, args=(10,)))
     dag.add_node(DAGNode('B', process_data, args=(20,)))
     dag.add_node(DAGNode('C', aggregate))
-    dag.add_node(DAGNode('D', pull_data))
+    dag.add_node(DAGNode('D', simple_process))
 
     dag.add_edge('A', 'C')
     dag.add_edge('B', 'C')

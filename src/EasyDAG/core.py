@@ -201,11 +201,7 @@ class EasyDAG:
             # Remove from pending and record error similar to on_done's behavior
             pending.discard(node_id)
             tb = "".join(traceback.format_exception_only(type(exc), exc))
-            errors[node_id] = {
-                'traceback': tb,
-                'inputs': "<unknown - scheduling error>",
-                'exception': str(exc)
-            }
+            errors[node_id] = NodeError(tb, "<unknown - scheduling error>", str(exc))
             if self.fail_fast:
                 errors['__stop__'] = True
 
