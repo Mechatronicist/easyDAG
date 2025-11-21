@@ -28,7 +28,7 @@ jobs:
 
       - name: Build package
         run: python -m build
-        working-directory: ${{ github.workspace }}/EasyDAG
+        working-directory: ${{ github.workspace }}
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.12.0
