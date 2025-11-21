@@ -4,7 +4,7 @@ import threading
 import warnings
 from typing import Any, Callable, Dict, Optional
 
-from EasyDAG.types import DAGQueue, QueueMessage
+from src.EasyDAG.types import DAGQueue, QueueMessage
 
 
 class MultiprocessQueueWatcher:
