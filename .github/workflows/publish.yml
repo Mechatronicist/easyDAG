@@ -24,11 +24,11 @@ jobs:
           python-version: "3.12"
 
       - name: Install build tools
-        run: pip install build "hatchling<1.22"
+        run: pip install build "hatchling<1.27"
 
       - name: Build package
         run: |
-          python -m build
+          python -m build --no-isolation
           unzip -p dist/*.whl "*/METADATA" | head -20
         working-directory: ${{ github.workspace }}
 

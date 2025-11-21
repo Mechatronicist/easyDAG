@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling<1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -27,6 +27,18 @@ Issues = "https://github.com/mechatronicist/EasyDAG/issues"
 
 [tool.hatch.build]
 sources = ["src"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  ".venv",
+  ".git",
+  ".github",
+  "__pycache__",
+  "*.pyc",
+  ".pytest_cache",
+  ".vscode",
+  "*.egg-info",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["EasyDAG"]
