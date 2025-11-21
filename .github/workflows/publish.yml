@@ -24,11 +24,20 @@ jobs:
           python-version: "3.12"
 
       - name: Install build tools
-        run: pip install build
+        run: pip install build twine
 
       - name: Build package
         run: python -m build
         working-directory: ${{ github.workspace }}
+
+      # Upload artifacts for inspection
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: easydag-wheel
+          path: |
+            EasyDAG/dist/*.whl
+            EasyDAG/dist/*.tar.gz
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.12.0
