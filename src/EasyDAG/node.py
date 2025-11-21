@@ -2,7 +2,7 @@ import inspect
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from EasyDAG.types import NodeJob, NodeJobResult, NodeError
+from src.EasyDAG.types import NodeJob, NodeJobResult, NodeError
 
 
 class DAGNode:

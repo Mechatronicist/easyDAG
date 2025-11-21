@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "EasyDAG"
+version = "0.1.0"
+description = "A lightweight multiprocessing DAG execution engine with message queues."
+readme = "README.md"
+requires-python = ">=3.9"
+
+authors = [
+    {name = "Mechatronicist"}
+]
+
+license = {file = "LICENSE"}
+keywords = ["dag", "multiprocessing", "workflow", "parallel", "tasks"]
+
+dependencies = [
+    # None
+]
+
+[project.urls]
+Homepage = "https://github.com/mechatronicist/EasyDAG"
+Repository = "https://github.com/mechatronicist/EasyDAG"
+Issues = "https://github.com/mechatronicist/EasyDAG/issues"

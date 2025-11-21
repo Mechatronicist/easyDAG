@@ -10,9 +10,9 @@ from pathlib import Path
 from queue import Queue
 from typing import Any, Callable, Dict, List, Optional
 
-from EasyDAG.messages import MultiprocessQueueWatcher
-from EasyDAG.node import DAGNode, _node_worker
-from EasyDAG.types import DAGQueue, NodeJobResult, NodeJob, NodeError
+from src.EasyDAG.messages import MultiprocessQueueWatcher
+from src.EasyDAG.node import DAGNode, _node_worker
+from src.EasyDAG.types import DAGQueue, NodeJobResult, NodeJob, NodeError
 
 
 class EasyDAG:

@@ -1,5 +1,5 @@
 import time
-from EasyDAG import EasyDAG, DAGNode, MultiprocessQueueWatcher, DAGQueue, QueueMessage
+from src.EasyDAG import EasyDAG, DAGNode, MultiprocessQueueWatcher, DAGQueue, QueueMessage
 
 
 def pull_data():
