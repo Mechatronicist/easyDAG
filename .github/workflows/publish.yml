@@ -30,19 +30,19 @@ jobs:
         run: python -m build
         working-directory: ${{ github.workspace }}
 
-      # Upload artifacts for inspection
+      - run: ls -R EasyDAG/
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: easydag-wheel
           path: |
-            EasyDAG/dist/*.whl
-            EasyDAG/dist/*.tar.gz
-        working-directory: ${{ github.workspace }}
+            EasyDAG/EasyDAG/dist/*.whl
+            EasyDAG/EasyDAG/dist/*.tar.gz
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.12.0
         with:
           verbose: true
           skip-existing: true
-        working-directory: ${{ github.workspace }}
+
