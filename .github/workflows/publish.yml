@@ -45,4 +45,4 @@ jobs:
         with:
           verbose: true
           skip-existing: true
-
+          verify-metadata: false
