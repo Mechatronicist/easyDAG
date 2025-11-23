@@ -1,5 +1,5 @@
 import time
-from src.EasyDAG import EasyDAG, DAGNode, MultiprocessQueueWatcher, DAGQueue, QueueMessage
+from src.EasyDAG import EasyDAG, DAGNode, MultiprocessQueue, DAGQueue, QueueMessage
 
 
 def simple_process():
@@ -54,8 +54,8 @@ def log_progress(payload):
 
 if __name__ == '__main__':
     # Create DAG and register handlers
-    q = MultiprocessQueueWatcher()
-    dag = EasyDAG(processes=4, watch_queue=q)
+    q = MultiprocessQueue()
+    dag = EasyDAG(processes=4, mp_queue=q, watch_queue=False)
 
     # Register message handlers before running
     q.register_message_handler('upload', upload_to_database)

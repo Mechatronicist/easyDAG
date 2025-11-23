@@ -4,10 +4,10 @@ import threading
 import warnings
 from typing import Any, Callable, Dict, Optional
 
-from src.EasyDAG.types import DAGQueue, QueueMessage
+from .types import DAGQueue, QueueMessage
 
 
-class MultiprocessQueueWatcher:
+class MultiprocessQueue:
     def __init__(self):
         self.message_handlers: Dict[str, Callable] = {}
         self._listener_thread: Optional[threading.Thread] = None

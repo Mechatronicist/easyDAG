@@ -10,9 +10,9 @@ from pathlib import Path
 from queue import Queue
 from typing import Any, Callable, Dict, List, Optional
 
-from src.EasyDAG.messages import MultiprocessQueueWatcher
-from src.EasyDAG.node import DAGNode, _node_worker
-from src.EasyDAG.types import DAGQueue, NodeJobResult, NodeJob, NodeError
+from .queue import MultiprocessQueue
+from .node import DAGNode, _node_worker
+from .types import DAGQueue, NodeJobResult, NodeJob, NodeError
 
 
 class EasyDAG:
@@ -29,8 +29,7 @@ class EasyDAG:
     For example, if B depends on A and C, then 'inputs' passed to B will be {'A': <outA>, 'C': <outC>}.
     """
 
-    def __init__(self, processes: int = None, fail_fast: bool = True,
-                 watch_queue: MultiprocessQueueWatcher | None = None):
+    def __init__(self, processes: int = None, fail_fast: bool = True, mp_queue: MultiprocessQueue | None = None):
         """
         processes: number of worker processes (default: CPU count - 1)
         fail_fast: if True, stop scheduling new nodes when any node fails (default: True)
@@ -40,7 +39,7 @@ class EasyDAG:
         self.rev_adj: Dict[str, List[str]] = defaultdict(list)
         self.processes = processes or max(1, mp.cpu_count() - 1)
         self.fail_fast = fail_fast
-        self._message_queue = watch_queue
+        self._message_queue = mp_queue
 
     def add_node(self, node: DAGNode) -> None:
         if node.id in self.nodes:
