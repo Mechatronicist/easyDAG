@@ -2,7 +2,7 @@ import inspect
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from src.EasyDAG.types import NodeJob, NodeJobResult, NodeError
+from .dag_types import NodeJob, NodeJobResult, NodeError
 
 
 class DAGNode:
@@ -44,12 +44,17 @@ def _node_worker(job: NodeJob) -> NodeJobResult:
     func = job.func
     args = job.args
     kwargs = job.kwargs
+    inputs = job.resolved_inputs
+    params = inspect.signature(func).parameters
+
     # Provide inputs as kwargs
-    if job.resolved_inputs:
-        kwargs.update(job.resolved_inputs)
+    if inputs:
+        # Ignore unnecessary empty kwargs
+        kwargs.update({key: value for key, value in inputs.items() if not (key not in params and value is None)})
     # Also provide the message queue so functions can send messages to main thread
-    if job.message_queue is not None and "message_queue" in inspect.signature(func).parameters:
+    if job.message_queue is not None and "message_queue" in params:
         kwargs["message_queue"] = job.message_queue
+
     # Call the function
     try:
         result = func(*args, **kwargs)

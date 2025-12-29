@@ -10,12 +10,13 @@ from pathlib import Path
 from queue import Queue
 from typing import Any, Callable, Dict, List, Optional
 
-from src.EasyDAG.messages import MultiprocessQueueWatcher
-from src.EasyDAG.node import DAGNode, _node_worker
-from src.EasyDAG.types import DAGQueue, NodeJobResult, NodeJob, NodeError
+from .queue import MultiprocessQueue
+from .node import DAGNode, _node_worker
+from .dag_types import DAGQueue, NodeJobResult, NodeJob, NodeError
+from .interface import DagInterface, EasyInterface
 
 
-class EasyDAG:
+class EasyDAG(DagInterface):
     """A lightweight DAG executor using multiprocessing.Pool.
 
     Usage:
@@ -29,8 +30,8 @@ class EasyDAG:
     For example, if B depends on A and C, then 'inputs' passed to B will be {'A': <outA>, 'C': <outC>}.
     """
 
-    def __init__(self, processes: int = None, fail_fast: bool = True,
-                 watch_queue: MultiprocessQueueWatcher | None = None):
+    def __init__(self, processes: int = None, fail_fast: bool = True, mp_queue: MultiprocessQueue | None = None,
+                 api: None = None):
         """
         processes: number of worker processes (default: CPU count - 1)
         fail_fast: if True, stop scheduling new nodes when any node fails (default: True)
@@ -40,7 +41,8 @@ class EasyDAG:
         self.rev_adj: Dict[str, List[str]] = defaultdict(list)
         self.processes = processes or max(1, mp.cpu_count() - 1)
         self.fail_fast = fail_fast
-        self._message_queue = watch_queue
+        self._message_queue = mp_queue
+        self.dag_id = None
 
     def add_node(self, node: DAGNode) -> None:
         if node.id in self.nodes:
@@ -107,7 +109,8 @@ class EasyDAG:
             self,
             timeout: Optional[float] = None,
             cache_dir: Optional[str] = None,
-            progress_callback: Optional[Callable[[int, int, str], None]] = None
+            progress_callback: Optional[Callable[[int, int, str], None]] = None,
+            interface: Optional[EasyInterface] = None
     ) -> Dict[str, Any]:
         """Execute the DAG and return a dict mapping node_id -> output.
 
@@ -195,19 +198,19 @@ class EasyDAG:
                 }
                 if self.fail_fast:
                     errors['__stop__'] = True
+                if interface:
+                    interface.node_errored(node_id, f"Schedule Error: {e}")
 
-        def _handle_async_error(exc, node_id):
+        def _handle_async_error(e, node_id):
             # print(f"Async error for node {node_id}: {exc}")
             # Remove from pending and record error similar to on_done's behavior
             pending.discard(node_id)
-            tb = "".join(traceback.format_exception_only(type(exc), exc))
-            errors[node_id] = {
-                'traceback': tb,
-                'inputs': "<unknown - scheduling error>",
-                'exception': str(exc)
-            }
+            tb = "".join(traceback.format_exception_only(type(e), e))
+            errors[node_id] = NodeError(tb, "<unknown - worker infrastructure error>", str(e))
             if self.fail_fast:
                 errors['__stop__'] = True
+            if interface:
+                interface.node_errored(node_id, f"Infrastructure Error: {e}")
 
         # Callback executed in parent process when a worker finishes
         def on_done(job_result: NodeJobResult):
@@ -228,6 +231,8 @@ class EasyDAG:
                 if self.fail_fast:
                     # Signal to stop submitting new work
                     errors['__stop__'] = True
+                if interface:
+                    interface.node_errored(node_id, job_result.error_info.exception)
             else:
                 result = job_result.result
                 outputs[node_id] = result
@@ -244,7 +249,10 @@ class EasyDAG:
                     indeg[successor] -= 1
                     if indeg[successor] == 0:
                         ready.put(successor)
-
+                if interface:
+                    interface.node_finished(node_id)
+        if interface:
+            interface.dag_started(self.dag_id)
         # Main execution loop
         with self._create_pool() as pool:
             try:
@@ -253,21 +261,30 @@ class EasyDAG:
                 # Submit initial ready nodes
                 while not ready.empty():
                     nid = ready.get()
+                    if interface:
+                        interface.node_started(nid)
                     submit(nid, pool)
 
                 # Main loop: as nodes finish, new nodes become ready via callback
                 while pending or not ready.empty():
                     # Check for fail-fast condition
+
+                    if interface and interface.cancel_dag:
+                        errors["__stop__"] = "Cancelled"
+                        break
+
                     if self.fail_fast and '__stop__' in errors:
                         break
 
                     # Submit newly ready nodes
                     while not ready.empty():
                         nid = ready.get()
+                        if interface:
+                            interface.node_started(nid)
                         submit(nid, pool)
 
                     if timeout is not None and (time.time() - start) > timeout:
-                        raise TimeoutError("DistributedDAG.run timed out")
+                        raise TimeoutError("EasyDAG.run timed out")
 
                     # Small sleep to yield control and allow callbacks to run
                     time.sleep(0.1)
@@ -281,6 +298,9 @@ class EasyDAG:
                 # Stop the message listener
                 if self._message_queue:
                     self._message_queue.stop_message_listener()
+                # Send finished to interface
+                if interface:
+                    interface.dag_finished(self.dag_id, len(errors) == 0, metadata=errors.copy())
 
         # If any errors, raise an aggregated exception with tracebacks
         if len(errors) > 0:
