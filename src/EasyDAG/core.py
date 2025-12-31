@@ -30,8 +30,7 @@ class EasyDAG(DagInterface):
     For example, if B depends on A and C, then 'inputs' passed to B will be {'A': <outA>, 'C': <outC>}.
     """
 
-    def __init__(self, processes: int = None, fail_fast: bool = True, mp_queue: MultiprocessQueue | None = None,
-                 api: None = None):
+    def __init__(self, processes: int = None, fail_fast: bool = True, mp_queue: MultiprocessQueue | None = None):
         """
         processes: number of worker processes (default: CPU count - 1)
         fail_fast: if True, stop scheduling new nodes when any node fails (default: True)
@@ -107,7 +106,7 @@ class EasyDAG(DagInterface):
 
     def run(
             self,
-            timeout: Optional[float] = None,
+            dag_timeout: Optional[float] = None,
             cache_dir: Optional[str] = None,
             progress_callback: Optional[Callable[[int, int, str], None]] = None,
             interface: Optional[EasyInterface] = None
@@ -141,6 +140,8 @@ class EasyDAG(DagInterface):
             self._message_queue.register_queue(mp_queue)  # register queue to wrapper
         outputs = manager.dict()  # shared dict: node_id -> result
         errors = manager.dict()
+        times = manager.dict()
+        stop_state = manager.dict()
 
         # Setup message queue for child processes to communicate with main thread
         if self._message_queue:
@@ -158,6 +159,7 @@ class EasyDAG(DagInterface):
             ready.put(n)
 
         # Track progress and retries
+
         total_nodes = len(self.nodes)
         completed = [0]  # Use list for closure mutability
         retry_counts = defaultdict(int)
@@ -165,8 +167,10 @@ class EasyDAG(DagInterface):
         # For callback bookkeeping
         pending = set()  # node ids currently running
 
+
         # Helper to submit a node
         def submit(node_id: str, p: PoolType):
+            times[node_id] = time.time()
             # Check cache first
             cached_result = self._get_cached(node_id, cache_path)
             if cached_result is not None:
@@ -188,33 +192,40 @@ class EasyDAG(DagInterface):
                               error_callback=lambda ecb, nid=node_id: _handle_async_error(ecb, nid))
             except Exception as e:
                 # This catches immediate scheduling errors (e.g. pickling error when serializing payload)
+                times[node_id] = time.time() - times[node_id]
                 pending.discard(node_id)
                 # record error info
                 tb = traceback.format_exc()
-                errors[node_id] = {
-                    'traceback': tb,
-                    'inputs': str(resolved_inputs)[:500],
-                    'exception': str(e)
-                }
+                errors[node_id] = NodeError(tb, str(resolved_inputs)[:500], f"Schedule error: {str(e)}")
                 if self.fail_fast:
-                    errors['__stop__'] = True
+                    stop_state["Schedule Error"] = node_id
                 if interface:
-                    interface.node_errored(node_id, f"Schedule Error: {e}")
+                    node_md = {
+                        "time": times[node_id],
+                        "traceback": tb
+                    }
+                    interface.node_errored(node_id, f"Schedule Error: {e}", node_md)
 
         def _handle_async_error(e, node_id):
             # print(f"Async error for node {node_id}: {exc}")
             # Remove from pending and record error similar to on_done's behavior
+            times[node_id] = time.time() - times[node_id]
             pending.discard(node_id)
             tb = "".join(traceback.format_exception_only(type(e), e))
             errors[node_id] = NodeError(tb, "<unknown - worker infrastructure error>", str(e))
             if self.fail_fast:
-                errors['__stop__'] = True
+                stop_state["Infrastructure Error"] = node_id
             if interface:
-                interface.node_errored(node_id, f"Infrastructure Error: {e}")
+                node_md = {
+                    "time": times[node_id],
+                    "traceback": tb
+                }
+                interface.node_errored(node_id, f"Infrastructure Error: {e}", node_md)
 
         # Callback executed in parent process when a worker finishes
         def on_done(job_result: NodeJobResult):
             node_id = job_result.node_id
+            times[node_id] = time.time() - times[node_id]
             pending.discard(node_id)
 
             if job_result.error_info is not None:
@@ -230,9 +241,14 @@ class EasyDAG(DagInterface):
                 errors[node_id] = job_result.error_info
                 if self.fail_fast:
                     # Signal to stop submitting new work
-                    errors['__stop__'] = True
+                    stop_state["Node Runtime Error"] = node_id
                 if interface:
-                    interface.node_errored(node_id, job_result.error_info.exception)
+                    node_md = {
+                        "time": times[node_id],
+                        "traceback": job_result.error_info.traceback,
+                        "inputs": str(job_result.error_info.inputs),
+                    }
+                    interface.node_errored(node_id, f"Node error: {job_result.error_info.exception}", node_md)
             else:
                 result = job_result.result
                 outputs[node_id] = result
@@ -249,14 +265,20 @@ class EasyDAG(DagInterface):
                     indeg[successor] -= 1
                     if indeg[successor] == 0:
                         ready.put(successor)
+
+                # Update interface
                 if interface:
-                    interface.node_finished(node_id)
+                    node_md = {
+                        "time": times[node_id],
+                    }
+                    interface.node_finished(node_id, result, node_md)
+
         if interface:
             interface.dag_started(self.dag_id)
         # Main execution loop
         with self._create_pool() as pool:
             try:
-                start = time.time()
+                dag_start = time.time()
 
                 # Submit initial ready nodes
                 while not ready.empty():
@@ -267,13 +289,13 @@ class EasyDAG(DagInterface):
 
                 # Main loop: as nodes finish, new nodes become ready via callback
                 while pending or not ready.empty():
-                    # Check for fail-fast condition
-
-                    if interface and interface.cancel_dag:
-                        errors["__stop__"] = "Cancelled"
+                    # Check for interface cancellation
+                    if interface and interface.cancel_dag_flag:
+                        stop_state["Cancelled"] = None
                         break
 
-                    if self.fail_fast and '__stop__' in errors:
+                    # Check for fail-fast condition
+                    if self.fail_fast and len(stop_state) > 0:
                         break
 
                     # Submit newly ready nodes
@@ -283,42 +305,70 @@ class EasyDAG(DagInterface):
                             interface.node_started(nid)
                         submit(nid, pool)
 
-                    if timeout is not None and (time.time() - start) > timeout:
-                        raise TimeoutError("EasyDAG.run timed out")
+                    if dag_timeout is not None and (time.time() - dag_start) > dag_timeout:
+                        raise TimeoutError(f"Dag_ID: {self.dag_id} timed out.")
 
                     # Small sleep to yield control and allow callbacks to run
                     time.sleep(0.1)
 
-                pool.close()
+                # --- STOP HANDLING ---
+                if len(stop_state) > 0:
+                    pool.terminate()
+                else:
+                    pool.close()
                 pool.join()
-
             except Exception:
+                pool.terminate()
+                pool.join()
                 raise
+
             finally:
                 # Stop the message listener
                 if self._message_queue:
                     self._message_queue.stop_message_listener()
                 # Send finished to interface
+                dag_time_elapsed = time.time() - dag_start
                 if interface:
-                    interface.dag_finished(self.dag_id, len(errors) == 0, metadata=errors.copy())
+                    dag_md = {
+                        "outputs": dict(outputs),
+                        "errors": dict(errors),
+                        "time": dag_time_elapsed,
+                        "num_nodes": total_nodes,
+                        "num_success": len(outputs),
+                        "num_fail": len(errors),
+                        "num_skipped": total_nodes - len(outputs) - len(errors),
+                        "stop_state": dict(stop_state),
+                    }
+                    interface.dag_finished(self.dag_id, len(errors) == 0, metadata=dag_md)
 
         # If any errors, raise an aggregated exception with tracebacks
+        error_messages = []
         if len(errors) > 0:
-            error_messages = []
             for k in errors.keys():
-                if k == '__stop__':
-                    continue
                 error_info: NodeError = errors[k]
-                msg = f"Node {k} failed:\n"
-                msg += f"  Exception: {error_info.exception}\n"
-                msg += f"  Inputs: {error_info.inputs}\n"
-                msg += f"  Traceback:\n{error_info.traceback}"
+                msg = (
+                    f"Node {k} failed:\n"
+                    f"  Exception: {error_info.exception}\n"
+                    f"  Inputs: {error_info.inputs}\n"
+                    f"  Traceback:\n{error_info.traceback}"
+                )
                 error_messages.append(msg)
 
             combined = "\n\n".join(error_messages)
             raise RuntimeError(f"One or more nodes failed:\n{combined}")
 
-        # Convert manager.dict to regular dict
+        if len(stop_state) > 0:
+            for reason in stop_state.keys():
+                n: str = stop_state[reason]
+                msg = (
+                    f"From node: {n}\n"
+                    f"With reason: {reason}"
+                )
+                error_messages.append(msg)
+            combined = "\n\n".join(error_messages)
+            raise RuntimeError(f"Stop state triggered:\n{combined}")
+
+        # Return outputs from manager.dict
         return dict(outputs)
 
     def _topological_check(self) -> None:

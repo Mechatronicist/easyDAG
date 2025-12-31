@@ -24,7 +24,8 @@ class EasyInterface(ABC):
         """
     def __init__(self, dag: DagInterface) -> None:
         self.dag: DagInterface = dag
-        self.cancel_dag = False
+        self.cancel_dag_flag = False
+        self.dag_result = None
     # -----------------------
     # DAG lifecycle
     # -----------------------
@@ -95,21 +96,23 @@ class EasyInterface(ABC):
     # Optional control hooks
     # -----------------------
 
-    def run_dag(self, **kwargs) -> Any:
+    def run_dag(self, dag_id, **kwargs) -> Any:
         """
-        Initiate DAG execution.
+        Label the dag with an interface ID and initiate DAG execution.
         """
-        return self.dag.run(**kwargs)
+        self.cancel_dag_flag = False
+        self.dag.dag_id = dag_id
+        self.dag_result = self.dag.run(interface=self, **kwargs)
 
-    def cancel(self):
+    def cancel_dag(self):
         """
         Cancel DAG execution.
         """
-        self.cancel_dag = True
+        self.cancel_dag_flag = True
 
     def trim_dag(self, node_id: str):
         """
         Cancel a specific node and all dependents from running
         """
         # TODO: investigate and implement
-        pass
+        raise NotImplementedError
