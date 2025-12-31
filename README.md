@@ -189,9 +189,9 @@ Execution outcome is tracked explicitly via DAG status (success, failed, cancell
 
 ## WebSocket + FastAPI Demo
 
-A full working example is included:
+A full working example is available at:
 
-📁 `examples/full_web_demo/server.py`
+📁 `https://github.com/Mechatronicist/easyDAG-Web`
 
 ### What the demo shows
 
@@ -200,32 +200,6 @@ A full working example is included:
 * Streaming events over WebSockets
 * Starting and cancelling execution from the browser
 * Viewing live progress in real time
-
----
-
-### Running the Demo
-
-From the project root:
-
-```bash
-uvicorn example.server:app --reload
-```
-
-Open:
-
-```
-http://localhost:8000
-```
-
----
-
-### Demo UI Features
-
-* ▶️ Run DAG button
-* ⏹ Cancel DAG button
-* Live event stream
-* WebSocket-driven execution control
-* Browser-based monitoring
 
 ---
 
@@ -243,4 +217,3 @@ EasyDAG is ideal when you need:
   * Prefect
   * Ray
   * Dask
-
