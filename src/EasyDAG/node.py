@@ -2,7 +2,7 @@ import inspect
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from .types import NodeJob, NodeJobResult, NodeError
+from .dag_types import NodeJob, NodeJobResult, NodeError
 
 
 class DAGNode:

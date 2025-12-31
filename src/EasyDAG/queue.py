@@ -4,7 +4,7 @@ import threading
 import warnings
 from typing import Any, Callable, Dict, Optional
 
-from .types import DAGQueue, QueueMessage
+from .dag_types import DAGQueue, QueueMessage
 
 
 class MultiprocessQueue:
