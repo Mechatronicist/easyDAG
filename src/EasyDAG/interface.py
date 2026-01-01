@@ -22,10 +22,14 @@ class EasyInterface(ABC):
         - Logs
         - Message queues
         """
+    cancel_graceful: bool = True
+    cancel_dag_flag: str | None = None
+    dag: DagInterface
+    dag_result: Optional[Any]
+
     def __init__(self, dag: DagInterface) -> None:
-        self.dag: DagInterface = dag
-        self.cancel_dag_flag = False
-        self.dag_result = None
+        self.dag = dag
+
     # -----------------------
     # DAG lifecycle
     # -----------------------
@@ -100,15 +104,18 @@ class EasyInterface(ABC):
         """
         Label the dag with an interface ID and initiate DAG execution.
         """
-        self.cancel_dag_flag = False
+        self.cancel_dag_flag = None
         self.dag.dag_id = dag_id
         self.dag_result = self.dag.run(interface=self, **kwargs)
 
-    def cancel_dag(self):
+    def cancel_dag(self, cancel_message: Optional[str], graceful: bool = True) -> None:
         """
         Cancel DAG execution.
         """
-        self.cancel_dag_flag = True
+        if not cancel_message:
+            cancel_message = "Canceled"
+        self.cancel_graceful = graceful
+        self.cancel_dag_flag = cancel_message
 
     def trim_dag(self, node_id: str):
         """

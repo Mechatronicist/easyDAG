@@ -38,15 +38,15 @@ from EasyDAG import EasyDAG, DAGNode
 def task_a():
     return 2
 
-def task_b(x):
-    return x * 10
+def task_b(id_a):
+    return id_a * 10
 
 dag = EasyDAG(processes=4)
 
-dag.add_node(DAGNode("A", task_a))
-dag.add_node(DAGNode("B", task_b))
+dag.add_node(DAGNode("id_a", task_a))
+dag.add_node(DAGNode("id_b", task_b))
 
-dag.add_edge("A", "B")
+dag.add_edge("id_a", "id_b")
 
 outputs = dag.run()
 print(outputs)
@@ -73,7 +73,7 @@ EasyDAG guarantees:
 Each node wraps:
 
 * A callable function
-* Positional and keyword arguments
+* Static positional and keyword arguments
 * Retry configuration (optional)
 
 ```python
@@ -162,6 +162,7 @@ This allows you to observe and control execution without coupling logic to the e
 * `node_progress`
 * `node_finished`
 * `node_errored`
+* `run()`
 * `cancel()`
 
 You can implement your own interface to:

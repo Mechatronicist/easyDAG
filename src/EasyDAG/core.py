@@ -291,7 +291,7 @@ class EasyDAG(DagInterface):
                 while pending or not ready.empty():
                     # Check for interface cancellation
                     if interface and interface.cancel_dag_flag:
-                        stop_state["Cancelled"] = None
+                        stop_state["Cancelled"] = interface.cancel_dag_flag
                         break
 
                     # Check for fail-fast condition
@@ -312,7 +312,9 @@ class EasyDAG(DagInterface):
                     time.sleep(0.1)
 
                 # --- STOP HANDLING ---
-                if len(stop_state) > 0:
+                if len(stop_state) > 0 and (
+                        "Cancelled" not in stop_state or (interface and not interface.cancel_graceful)
+                ):
                     pool.terminate()
                 else:
                     pool.close()
