@@ -1,5 +1,4 @@
 import queue
-import traceback
 import threading
 import warnings
 from typing import Any, Callable, Dict, Optional
@@ -48,13 +47,13 @@ class MultiprocessQueue:
             self._listener_thread = threading.Thread(target=self._message_listener, daemon=True)
             self._listener_thread.start()
 
-    def stop_message_listener(self) -> None:
+    def stop_message_listener(self, timeout: Optional[int] = None) -> None:
         """Stop the message listener thread."""
         if self._listener_thread is not None:
             self._stop_listener.set()
             # Send sentinel to unblock the listener
             self._queue.put(QueueMessage.stop_signal())
-            self._listener_thread.join(timeout=5)
+            self._listener_thread.join(timeout=timeout)
             self._listener_thread = None
 
     def _message_listener(self) -> None:
@@ -70,28 +69,12 @@ class MultiprocessQueue:
                 # Check if we have a handler for this message type
                 if message.type in self.message_handlers:
                     handler = self.message_handlers[message.type]
-                    # Execute handler in a separate thread, so it doesn't block listener
-                    thread = threading.Thread(
-                        target=self._safe_handler_execution,
-                        args=(handler, message.payload, message.type),
-                        daemon=True
-                    )
-                    thread.start()
+                    handler(message.payload)
                 else:
                     print(f"Warning: No handler registered for message type '{message.type}'")
-
             except queue.Empty:
                 # Timeout
                 continue
             except Exception as e:
                 warnings.warn(f"The message queue was forced closed because of an error:\n{e}")
-                self.stop_message_listener()
-
-    @staticmethod
-    def _safe_handler_execution(handler: Callable, payload: Any, handler_name: str) -> None:
-        """Execute a message handler with error handling."""
-        try:
-            handler(payload)
-        except Exception as e:
-            warnings.warn(f"Queue Execution Error from '{handler_name}':\n{e}")
-            traceback.print_exc()
+                self.stop_message_listener(0)
