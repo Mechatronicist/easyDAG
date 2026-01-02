@@ -46,6 +46,8 @@ class MultiprocessQueue:
             self._stop_listener.clear()
             self._listener_thread = threading.Thread(target=self._message_listener, daemon=True)
             self._listener_thread.start()
+        else:
+            print("Attempted to start a message listener thread but no message queue was provided.")
 
     def stop_message_listener(self, timeout: Optional[int] = None) -> None:
         """Stop the message listener thread."""
@@ -55,6 +57,8 @@ class MultiprocessQueue:
             self._queue.put(QueueMessage.stop_signal())
             self._listener_thread.join(timeout=timeout)
             self._listener_thread = None
+        else:
+            print("Attempted to stop a message listener thread but no listener thread was alive.")
 
     def _message_listener(self) -> None:
         """Listen for messages from child processes and dispatch handlers in threads."""
