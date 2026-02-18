@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, Callable
 
+from EasyDAG import EasyDAG
+
 
 class DagInterface(ABC):
     dag_id: Optional[str]
@@ -27,7 +29,9 @@ class EasyInterface(ABC):
     dag: DagInterface
     dag_result: Optional[Any]
 
-    def __init__(self, dag: DagInterface) -> None:
+    def __init__(self, dag: DagInterface = None) -> None:
+        if not dag:
+            dag = EasyDAG()
         self.dag = dag
 
     # -----------------------
@@ -50,7 +54,7 @@ class EasyInterface(ABC):
             success: bool,
             metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Called once when a DAG run completes."""
+        """Called once when a DAG run completes or cancels."""
         raise NotImplementedError
 
     # -----------------------
@@ -96,16 +100,25 @@ class EasyInterface(ABC):
         """Node failed."""
         raise NotImplementedError
 
+    @abstractmethod
+    def node_cancelled(
+            self,
+            node_id: str,
+            reason: str,
+            metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Node cancelled."""
+        raise NotImplementedError
+
     # -----------------------
     # Optional control hooks
     # -----------------------
 
-    def run_dag(self, dag_id, **kwargs) -> Any:
+    def run_dag(self, **kwargs) -> Any:
         """
         Label the dag with an interface ID and initiate DAG execution.
         """
         self.cancel_dag_flag = None
-        self.dag.dag_id = dag_id
         self.dag_result = self.dag.run(interface=self, **kwargs)
 
     def cancel_dag(self, cancel_message: Optional[str], graceful: bool = True) -> None:

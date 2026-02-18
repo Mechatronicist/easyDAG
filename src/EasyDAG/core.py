@@ -275,7 +275,9 @@ class EasyDAG(DagInterface):
 
         if interface:
             interface.dag_started(self.dag_id)
+        # ================================
         # Main execution loop
+        # ================================
         with self._create_pool() as pool:
             try:
                 dag_start = time.time()

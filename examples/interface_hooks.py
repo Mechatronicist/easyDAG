@@ -1,5 +1,3 @@
-from typing import Optional, Dict, Any
-
 from src.EasyDAG import EasyDAG, DAGNode, EasyInterface
 
 
@@ -63,7 +61,7 @@ if __name__ == "__main__":
     # Attach the interface
     interface = LoggingInterface(dag)
 
-    outputs = dag.run(interface=interface)
+    interface.run_dag()
 
     print("\nFinal outputs:")
-    print(outputs)
+    print(interface.dag_result)
