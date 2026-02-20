@@ -123,7 +123,7 @@ class EasyInterface(ABC):
         self._trim_dag_impl = None  # reset before each run
         self.dag_result = self.dag.run(interface=self, **kwargs)
 
-    def cancel_dag(self, cancel_message: Optional[str], graceful: bool = True) -> None:
+    def cancel_dag(self, cancel_message: Optional[str] = None, graceful: bool = True) -> None:
         """Cancel the entire DAG execution."""
         if not cancel_message:
             cancel_message = "Canceled"
