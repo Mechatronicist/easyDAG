@@ -43,6 +43,9 @@ class LoggingInterface(EasyInterface):
     def node_errored(self, node_id, error, metadata=None):
         print(f"  [NODE ERROR] {node_id}: {error}")
 
+    def node_cancelled(self, node_id, reason, metadata=None):
+        print(f"  [NODE ERROR] {node_id}: {reason}")
+
 
 # -----------------------------
 # Main

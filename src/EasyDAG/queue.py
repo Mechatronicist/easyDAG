@@ -1,3 +1,7 @@
+# -----------------------------------------------
+# FILE: queue.py
+# -----------------------------------------------
+
 import queue
 import threading
 import warnings
@@ -82,3 +86,7 @@ class MultiprocessQueue:
             except Exception as e:
                 warnings.warn(f"The message queue was forced closed because of an error:\n{e}")
                 self.stop_message_listener(0)
+
+# -----------------------------------------------
+# END FILE: queue.py
+# -----------------------------------------------

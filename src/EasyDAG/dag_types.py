@@ -1,3 +1,7 @@
+# -----------------------------------------------
+# FILE: dag_types.py
+# -----------------------------------------------
+
 import time
 from dataclasses import dataclass, field
 from multiprocessing import Queue as MPQueue
@@ -50,6 +54,8 @@ class NodeJob:
     kwargs: Dict[str, Any]
     resolved_inputs: Optional[Dict[str, Any]]
     message_queue: Optional[DAGQueue]
+    cancelled_nodes: Any = None  # manager.dict of node_id -> cancel_reason; checked by worker at startup
+    node_pids: Any = None  # manager.dict of node_id -> pid; written by worker so parent can kill it
 
 
 @dataclass
@@ -64,6 +70,8 @@ class NodeJobResult:
     node_id: str
     result: Optional[Any] = None
     error_info: Optional[NodeError] = None
+    cancelled: bool = False
+    cancel_reason: Optional[str] = None
 
 
 @dataclass
@@ -74,3 +82,7 @@ class NodeSpec:
     args: List[Any] = field(default_factory=list)
     kwargs: Dict[str, Any] = field(default_factory=dict)
     max_retries: int = 0
+
+# -----------------------------------------------
+# END FILE: dag_types.py
+# -----------------------------------------------

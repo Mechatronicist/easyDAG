@@ -1,4 +1,9 @@
+# -----------------------------------------------
+# FILE: node.py
+# -----------------------------------------------
+
 import inspect
+import os
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -18,7 +23,7 @@ class DAGNode:
         """Create a DAG node.
 
         node_id: unique identifier for the node (string)
-        func: a picklable callable. It will be called as func(*args, **kwargs)
+        func: callable. It will be called as func(*args, **kwargs)
               where additional keyword 'inputs' may be provided (see executor).
         args/kwargs: static arguments that will be provided to func in addition
                      to resolved inputs.
@@ -37,8 +42,8 @@ class DAGNode:
 def _node_worker(job: NodeJob) -> NodeJobResult:
     """Unpack payload and run the node function.
 
-    Expects a tuple: (node_id, func, args, kwargs, resolved_inputs, message_queue)
-    Returns: (node_id, result | None, error_info | None)
+    Expects a NodeJob dataclass.
+    Returns: NodeJobResult with result or error_info populated.
     """
     node_id = job.node_id
     func = job.func
@@ -47,10 +52,24 @@ def _node_worker(job: NodeJob) -> NodeJobResult:
     inputs = job.resolved_inputs
     params = inspect.signature(func).parameters
 
-    # Provide inputs as kwargs
+    # Register this worker's PID so the parent can kill it if needed
+    if job.node_pids is not None:
+        job.node_pids[node_id] = os.getpid()
+
+    # Check if this node was cancelled before we even started doing real work
+    if job.cancelled_nodes is not None and node_id in job.cancelled_nodes:
+        reason = job.cancelled_nodes[node_id]
+        return NodeJobResult(node_id, cancelled=True, cancel_reason=reason)
+
+    # Inject resolved inputs to args
     if inputs:
-        # Ignore unnecessary empty kwargs
-        kwargs.update({key: value for key, value in inputs.items() if not (key not in params and value is None)})
+        # First, add inputs that match known parameter names in order
+        kwargs.update({key: value for key, value in inputs.items() if key in params})
+
+        # Then, append any remaining inputs that weren't in params
+        args = tuple([value for key, value in inputs.items()
+            if key not in params]) + args
+
     # Also provide the message queue so functions can send messages to main thread
     if job.message_queue is not None and "message_queue" in params:
         kwargs["message_queue"] = job.message_queue
@@ -63,3 +82,11 @@ def _node_worker(job: NodeJob) -> NodeJobResult:
         tb = traceback.format_exc()
         error_info = NodeError(tb, str(job.resolved_inputs)[:500], str(e))
         return NodeJobResult(node_id, error_info=error_info)
+    finally:
+        # Unregister PID on completion
+        if job.node_pids is not None:
+            job.node_pids.pop(node_id, None)
+
+# -----------------------------------------------
+# END FILE: node.py
+# -----------------------------------------------

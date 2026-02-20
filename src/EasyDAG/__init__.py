@@ -1,3 +1,7 @@
+# -----------------------------------------------
+# FILE: __init__.py
+# -----------------------------------------------
+
 from .core import EasyDAG
 from .queue import MultiprocessQueue
 from .node import DAGNode
@@ -13,3 +17,7 @@ __all__ = [
     "QueueMessage",
     "EasyInterface",
 ]
+
+# -----------------------------------------------
+# END FILE: __init__.py
+# -----------------------------------------------

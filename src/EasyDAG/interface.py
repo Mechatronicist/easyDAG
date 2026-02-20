@@ -1,8 +1,9 @@
+# -----------------------------------------------
+# FILE: interface.py
+# -----------------------------------------------
+
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, Callable
-
-from EasyDAG import EasyDAG
-
 
 class DagInterface(ABC):
     dag_id: Optional[str]
@@ -13,25 +14,27 @@ class DagInterface(ABC):
             interface: Optional["EasyInterface"] = None):
         pass
 
+
 class EasyInterface(ABC):
     """
-        Abstract interface for observing and controlling DAG execution.
+    Abstract interface for observing and controlling DAG execution.
 
-        Implementations may forward events to:
-        - Web APIs
-        - WebSockets
-        - Databases
-        - Logs
-        - Message queues
-        """
+    Implementations may forward events to:
+    - Web APIs
+    - WebSockets
+    - Databases
+    - Logs
+    - Message queues
+    """
     cancel_graceful: bool = True
     cancel_dag_flag: str | None = None
     dag: DagInterface
     dag_result: Optional[Any]
 
-    def __init__(self, dag: DagInterface = None) -> None:
-        if not dag:
-            dag = EasyDAG()
+    # Injected by EasyDAG.run() so trim_dag can reach live shared state
+    _trim_dag_impl: Optional[Callable[[str, str], None]] = None
+
+    def __init__(self, dag: DagInterface) -> None:
         self.dag = dag
 
     # -----------------------
@@ -111,28 +114,44 @@ class EasyInterface(ABC):
         raise NotImplementedError
 
     # -----------------------
-    # Optional control hooks
+    # Control hooks
     # -----------------------
 
     def run_dag(self, **kwargs) -> Any:
-        """
-        Label the dag with an interface ID and initiate DAG execution.
-        """
+        """Label the dag with an interface ID and initiate DAG execution."""
         self.cancel_dag_flag = None
+        self._trim_dag_impl = None  # reset before each run
         self.dag_result = self.dag.run(interface=self, **kwargs)
 
     def cancel_dag(self, cancel_message: Optional[str], graceful: bool = True) -> None:
-        """
-        Cancel DAG execution.
-        """
+        """Cancel the entire DAG execution."""
         if not cancel_message:
             cancel_message = "Canceled"
         self.cancel_graceful = graceful
         self.cancel_dag_flag = cancel_message
 
-    def trim_dag(self, node_id: str):
+    def trim_dag(self, node_id: str, reason: str = "Trimmed") -> None:
         """
-        Cancel a specific node and all dependents from running
+        Cancel a specific node and all of its descendants.
+
+        Rules:
+        - If the node has already completed successfully, this call is a no-op
+          for that node, but any not-yet-started descendants will still be cancelled.
+        - If the node is currently running, its worker process is sent SIGTERM and
+          the result (if it arrives) is discarded.
+        - Nodes that do not transitively depend on `node_id` are not affected.
+        - Can be called from any thread (e.g. a background monitoring thread)
+          while the DAG is executing.
+
+        Raises RuntimeError if called before run_dag() has started (no active run).
         """
-        # TODO: investigate and implement
-        raise NotImplementedError
+        if self._trim_dag_impl is None:
+            raise RuntimeError(
+                "trim_dag() called outside of an active DAG run. "
+                "Call run_dag() first."
+            )
+        self._trim_dag_impl(node_id, reason)
+
+# -----------------------------------------------
+# END FILE: interface.py
+# -----------------------------------------------
