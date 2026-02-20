@@ -1,4 +1,4 @@
-from EasyDAG import EasyDAG, DAGNode
+from src.EasyDAG import EasyDAG, DAGNode
 
 
 def load_data():
